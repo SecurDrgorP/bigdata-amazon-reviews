@@ -1,0 +1,20 @@
+# Ignore Python bytecode files
+__pycache__/
+*.py[cod]
+
+# Ignore environment variables
+.env
+.VENV
+
+# Ignore Jupyter Notebook checkpoints
+.ipynb_checkpoints/
+
+# Ignore spacy model directory
+data/spacy_model/
+
+# Ignore data files
+data/*.csv
+data/*.pkl
+data/*.npz
+
+model/truly_balanced_model/
