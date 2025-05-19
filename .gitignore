@@ -17,4 +17,3 @@ data/*.csv
 data/*.pkl
 data/*.npz
 
-model/truly_balanced_model/
