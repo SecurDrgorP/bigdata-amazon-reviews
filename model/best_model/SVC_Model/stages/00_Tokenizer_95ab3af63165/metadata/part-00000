@@ -1,0 +1,1 @@
+{"class":"org.apache.spark.ml.feature.Tokenizer","timestamp":1747754335141,"sparkVersion":"3.5.5","uid":"Tokenizer_95ab3af63165","paramMap":{"inputCol":"lemmatized_text","outputCol":"words"},"defaultParamMap":{"outputCol":"Tokenizer_95ab3af63165__output"}}

@@ -6,8 +6,8 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from pyspark.sql import SparkSession
 from pyspark.sql.functions import col, rand
-from pyspark.ml.feature import Tokenizer, StopWordsRemover, HashingTF, IDF, StringIndexer, NGram, VectorAssembler, OneHotEncoder
-from pyspark.ml.classification import RandomForestClassifier, GBTClassifier, MultilayerPerceptronClassifier
+from pyspark.ml.feature import Tokenizer, StopWordsRemover, HashingTF, IDF, StringIndexer, NGram, VectorAssembler
+from pyspark.ml.classification import LinearSVC, OneVsRest
 from pyspark.ml import Pipeline
 from pyspark.ml.evaluation import MulticlassClassificationEvaluator
 from pyspark.ml.tuning import CrossValidator, ParamGridBuilder
@@ -162,46 +162,61 @@ label_model = label_indexer.fit(train_df)
 print("Label ordering:", label_model.labelsArray[0])
 
 # Encodage One-Hot de la variable cible
-encoder = OneHotEncoder(inputCol="indexedLabel", outputCol="labelVec")
+# encoder = OneHotEncoder(inputCol="indexedLabel", outputCol="labelVec")
 
 # Utiliser RandomForest au lieu de LogisticRegression
-rf = RandomForestClassifier(
-    featuresCol="features", 
-    labelCol="indexedLabel",
-    numTrees=20,
-    maxDepth=5,
-    maxBins=16,
-    minInstancesPerNode=10,
-    impurity="gini",
-    seed=42
-)
+# rf = RandomForestClassifier(
+#     featuresCol="features", 
+#     labelCol="indexedLabel",
+#     numTrees=20,
+#     maxDepth=5,
+#     maxBins=16,
+#     minInstancesPerNode=10,
+#     impurity="gini",
+#     seed=42
+# )
 
 # Alternative: Try GBTClassifier which often performs better
-gbt = GBTClassifier(
-    featuresCol="features", 
-    labelCol="indexedLabel",
-    maxIter=50,
-    maxDepth=6,
-    stepSize=0.1
-)
+# gbt = GBTClassifier(
+#     featuresCol="features", 
+#     labelCol="indexedLabel",
+#     maxIter=50,
+#     maxDepth=6,
+#     stepSize=0.1
+# )
 
 # Neural network explicitly supporting multi-class
-mlp = MultilayerPerceptronClassifier(
+# mlp = MultilayerPerceptronClassifier(
+#     featuresCol="features",
+#     labelCol="indexedLabel",
+#     layers=[feature_size, 50, 3],  # 3 output nodes for 3 classes
+#     seed=42
+# )
+
+# define a linear SVM
+lsvc = LinearSVC(
     featuresCol="features",
     labelCol="indexedLabel",
-    layers=[feature_size, 50, 3],  # 3 output nodes for 3 classes
-    seed=42
+    maxIter=50,
+    regParam=0.1
+)
+
+# wrap for multi‐class
+ovr = OneVsRest(
+    classifier=lsvc,
+    labelCol="indexedLabel",
+    featuresCol="features"
 )
 
 # Create parameter grid
 paramGrid = ParamGridBuilder() \
-    .addGrid(rf.maxDepth, [5]) \
-    .addGrid(rf.numTrees, [20]) \
+    .addGrid(lsvc.maxIter, [50]) \
+    .addGrid(lsvc.regParam, [0.1]) \
     .build()
 
 # Create cross-validator
 crossval = CrossValidator(
-    estimator=rf,
+    estimator=ovr,
     estimatorParamMaps=paramGrid,
     evaluator=MulticlassClassificationEvaluator(labelCol="indexedLabel", predictionCol="prediction", metricName="f1"),
     numFolds=2  # Reduced from 3
@@ -212,8 +227,8 @@ pipeline = Pipeline(stages=[
     tokenizer, remover, bigram, trigram,
     hashingTF_uni, idf_uni, hashingTF_bi, idf_bi, hashingTF_tri, idf_tri,
     VectorAssembler(inputCols=["features_uni", "features_bi", "features_tri"], outputCol="features"),
-    label_indexer, encoder,
-    crossval  # Use the cross-validator instead of direct classifier
+    label_indexer,
+    ovr           # <-- use SVM instead of crossval
 ])
 
 try:
@@ -238,7 +253,7 @@ try:
     
     print(f"\nRésultats de validation:")
     print(f"F1-score (validation): {val_f1:.4f}")
-    print(f"Précision (validation): {val_accuracy:.4f}")
+    print(f"Accuracy (validation): {val_accuracy:.4f}")
     
     # Matrice de confusion sur la validation
     print("\nMatrice de confusion (validation):")
@@ -250,7 +265,8 @@ try:
     
     # Afficher quelques prédictions
     print("\nExemples de prédictions (test):")
-    test_predictions.select("lemmatized_text", "label", "prediction", "probability").show(5, truncate=30)
+    test_predictions.select("lemmatized_text", "label", "prediction", "rawPrediction")\
+        .show(5, truncate=30)
     
     # Afficher la distribution des prédictions sur l'ensemble de test
     print("\nDistribution des prédictions (test):")
@@ -267,11 +283,11 @@ try:
     
     print(f"\nRésultats d'évaluation finaux (test):")
     print(f"F1-score: {test_f1:.4f}")
-    print(f"Précision: {test_accuracy:.4f}")
+    print(f"Accuracy: {test_accuracy:.4f}")
     print(f"Recall pondéré: {test_recall:.4f}")
     
     # Sauvegarder le modèle
-    model_path = "model/best_model/balanced_sentiment_model"
+    model_path = "model/best_model/SVC_Model"
     model.write().overwrite().save(model_path)
     print(f"\nModèle sauvegardé avec succès à: {model_path}")
 
