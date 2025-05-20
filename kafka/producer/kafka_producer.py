@@ -6,20 +6,21 @@ import os
 # Fix the path calculation - only go up 2 levels from the script location
 current_dir = os.path.dirname(os.path.abspath(__file__))
 project_root = os.path.dirname(os.path.dirname(current_dir))  # Remove one dirname call
-data_path = os.path.join(project_root, 'data', 'reviews.json')
+data_path = os.path.join(project_root, 'data', 'test_data.json')
 
 print(f"Looking for data file at: {data_path}")  # Debug path
 
+brocker = os.getenv("KAFKA_BROKER")
 # Connection to Kafka broker with proper configuration
 producer = KafkaProducer(
-    bootstrap_servers='localhost:9092',
+    bootstrap_servers=brocker,
     value_serializer=lambda v: json.dumps(v).encode('utf-8'),
     request_timeout_ms=10000,
     api_version=(0, 10, 1)
 )
 
 # Topic name
-TOPIC = 'reviews'
+TOPIC = os.getenv("KAFKA_TOPIC")
 
 try:
     # Verify the file exists before trying to open it

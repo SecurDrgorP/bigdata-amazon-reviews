@@ -1,0 +1,1 @@
+spark-submit   --packages org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.5,org.mongodb.spark:mongo-spark-connector_2.12:3.0.2   --conf "spark.mongodb.output.uri=mongodb://localhost:27017"   kafka/consumer/spark_consumer.py

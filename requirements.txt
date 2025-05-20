@@ -1,3 +1,9 @@
+
+flask
+pymongo
+flask-socketio
+eventlet
+
 kafka-python
 pyspark
 pandas
@@ -7,3 +13,5 @@ scikit-learn
 
 download 
 en_core_web_sm
+
+python-dotenv

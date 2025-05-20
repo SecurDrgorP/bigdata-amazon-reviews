@@ -3,6 +3,11 @@ from pyspark.ml import PipelineModel
 from pyspark.sql.functions import from_json, col, udf, lit, current_timestamp
 from pyspark.sql.types import *
 import os
+import sys
+
+# Add project root to Python path
+project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '../..'))
+sys.path.insert(0, project_root)
 
 from utils.for_spark_consumer import clean_text, simple_lemmatize, write_to_mongodb
 
@@ -22,7 +27,7 @@ lemmatize_udf = udf(simple_lemmatize, StringType())
 
 # Charger le modèle
 try:
-    model = PipelineModel.load("model/best_model/truly_balanced_sentiment_model")
+    model = PipelineModel.load("model/best_model/balanced_sentiment_model")
     print("Modèle chargé avec succès!")
 except Exception as e:
     print(f"Erreur lors du chargement du modèle: {e}")
@@ -36,11 +41,13 @@ schema = StructType() \
     .add("reviewerID", StringType()) \
     .add("asin", StringType())
 
+brocker = os.getenv("KAFKA_BROKER")
+topic = os.getenv("KAFKA_TOPIC")
 # Lire les messages Kafka
 df_raw = spark.readStream \
     .format("kafka") \
-    .option("kafka.bootstrap.servers", "localhost:9092") \
-    .option("subscribe", "reviews") \
+    .option("kafka.bootstrap.servers", brocker) \
+    .option("subscribe", topic) \
     .option("startingOffsets", "latest") \
     .load()
 

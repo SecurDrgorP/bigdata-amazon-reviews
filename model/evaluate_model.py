@@ -1,18 +1,27 @@
+import sys
+import os
+
+# Add the project root directory to the Python path
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 from pyspark.sql import SparkSession
-from pyspark.sql.functions import col, count, when, isnan, lit, rand
-from pyspark.ml.feature import Tokenizer, StopWordsRemover, HashingTF, IDF, StringIndexer, NGram, VectorAssembler
-from pyspark.ml.classification import RandomForestClassifier, GBTClassifier  # Changed from LogisticRegression
+from pyspark.sql.functions import col, rand
+from pyspark.ml.feature import Tokenizer, StopWordsRemover, HashingTF, IDF, StringIndexer, NGram, VectorAssembler, OneHotEncoder
+from pyspark.ml.classification import RandomForestClassifier, GBTClassifier, MultilayerPerceptronClassifier
 from pyspark.ml import Pipeline
 from pyspark.ml.evaluation import MulticlassClassificationEvaluator
 from pyspark.ml.tuning import CrossValidator, ParamGridBuilder
-from pyspark.mllib.evaluation import MulticlassMetrics
-import pandas as pd
-import matplotlib.pyplot as plt
+
+from utils.for_evaluate_model import evaluate_per_class
 
 # Créer une session Spark
 spark = SparkSession.builder \
     .appName("BalancedReviewSentimentClassifier") \
     .config("spark.driver.memory", "4g") \
+    .config("spark.sql.shuffle.partitions", "20") \
+    .config("spark.local.dir", "/tmp/spark-temp") \
+    .config("spark.memory.fraction", "0.7") \
+    .config("spark.memory.storageFraction", "0.2") \
     .getOrCreate()
 
 # Configurer le niveau de log pour réduire les sorties
@@ -102,6 +111,22 @@ validation_df.groupBy("label").count().orderBy("label").show()
 print("\nDistribution des classes dans l'ensemble de test:")
 test_df.groupBy("label").count().orderBy("label").show()
 
+# Exporter le jeu de test en JSON
+test_json_dir = os.path.join("data", "test_data_dir.json")
+print(f"\nExportation des données de test vers {test_json_dir}...")
+test_df.write.mode("overwrite").json(test_json_dir)
+
+# Exporter un fichier JSON unique
+test_single_file_path = os.path.join("data", "test_data.json")
+test_pandas_df = test_df.toPandas()
+test_pandas_df.to_json(test_single_file_path, orient='records', lines=True)
+print(f"Données de test exportées en fichier JSON unique: {test_single_file_path}")
+
+# Exporter en CSV pour une visualisation plus facile si nécessaire
+test_csv_path = os.path.join("data", "test_data.csv")
+test_pandas_df.to_csv(test_csv_path, index=False)
+print(f"Données de test exportées en CSV: {test_csv_path}")
+
 # Tokenisation
 tokenizer = Tokenizer(inputCol="lemmatized_text", outputCol="words")
 remover = StopWordsRemover(inputCol="words", outputCol="filtered_words")
@@ -112,30 +137,42 @@ trigram = NGram(n=3, inputCol="filtered_words", outputCol="trigrams")
 
 # TF-IDF avec plus de features
 # Traiter unigrammes, bigrammes et trigrammes séparément
-hashingTF_uni = HashingTF(inputCol="filtered_words", outputCol="tf_uni", numFeatures=5000)
-hashingTF_bi = HashingTF(inputCol="bigrams", outputCol="tf_bi", numFeatures=5000)
-hashingTF_tri = HashingTF(inputCol="trigrams", outputCol="tf_tri", numFeatures=5000)
+hashingTF_uni = HashingTF(inputCol="filtered_words", outputCol="tf_uni", numFeatures=1000)  # Reduced from 5000
+hashingTF_bi = HashingTF(inputCol="bigrams", outputCol="tf_bi", numFeatures=1000)          # Reduced from 5000
+hashingTF_tri = HashingTF(inputCol="trigrams", outputCol="tf_tri", numFeatures=1000)       # Reduced from 5000
 
 idf_uni = IDF(inputCol="tf_uni", outputCol="features_uni")
 idf_bi = IDF(inputCol="tf_bi", outputCol="features_bi")
 idf_tri = IDF(inputCol="tf_tri", outputCol="features_tri")
 
+# Total size of feature vector (sum of all TF-IDF features)
+feature_size = 3000  # 1000 for unigrams + 1000 for bigrams + 1000 for trigrams
+
 # Indexation de la classe avec gestion des valeurs nulles
 label_indexer = StringIndexer(
     inputCol="label", 
-    outputCol="indexedLabel", 
-    handleInvalid="skip"
+    outputCol="indexedLabel",
+    stringOrderType="alphabetAsc",  # This will keep 0.0, 1.0, 2.0 order
+    handleInvalid="keep"
 )
+
+# Add this code to verify label mapping
+print("\nVérification du mapping des labels:")
+label_model = label_indexer.fit(train_df)
+print("Label ordering:", label_model.labelsArray[0])
+
+# Encodage One-Hot de la variable cible
+encoder = OneHotEncoder(inputCol="indexedLabel", outputCol="labelVec")
 
 # Utiliser RandomForest au lieu de LogisticRegression
 rf = RandomForestClassifier(
-    featuresCol="features",  # Updated to use combined features
+    featuresCol="features", 
     labelCol="indexedLabel",
-    numTrees=200,            # More trees for better ensemble effect
-    maxDepth=8,              # Slightly reduced to prevent overfitting
-    maxBins=32,              # Increase bins for better splits
-    minInstancesPerNode=5,   # Require more samples per node
-    impurity="entropy",      # Try entropy instead of gini
+    numTrees=20,
+    maxDepth=5,
+    maxBins=16,
+    minInstancesPerNode=10,
+    impurity="gini",
     seed=42
 )
 
@@ -148,11 +185,18 @@ gbt = GBTClassifier(
     stepSize=0.1
 )
 
+# Neural network explicitly supporting multi-class
+mlp = MultilayerPerceptronClassifier(
+    featuresCol="features",
+    labelCol="indexedLabel",
+    layers=[feature_size, 50, 3],  # 3 output nodes for 3 classes
+    seed=42
+)
+
 # Create parameter grid
 paramGrid = ParamGridBuilder() \
-    .addGrid(rf.maxDepth, [6, 8, 10]) \
-    .addGrid(rf.numTrees, [100, 200]) \
-    .addGrid(rf.impurity, ["gini", "entropy"]) \
+    .addGrid(rf.maxDepth, [5]) \
+    .addGrid(rf.numTrees, [20]) \
     .build()
 
 # Create cross-validator
@@ -160,7 +204,7 @@ crossval = CrossValidator(
     estimator=rf,
     estimatorParamMaps=paramGrid,
     evaluator=MulticlassClassificationEvaluator(labelCol="indexedLabel", predictionCol="prediction", metricName="f1"),
-    numFolds=3  # Use 3 folds for faster training
+    numFolds=2  # Reduced from 3
 )
 
 # Pipeline complète
@@ -168,7 +212,7 @@ pipeline = Pipeline(stages=[
     tokenizer, remover, bigram, trigram,
     hashingTF_uni, idf_uni, hashingTF_bi, idf_bi, hashingTF_tri, idf_tri,
     VectorAssembler(inputCols=["features_uni", "features_bi", "features_tri"], outputCol="features"),
-    label_indexer,
+    label_indexer, encoder,
     crossval  # Use the cross-validator instead of direct classifier
 ])
 
@@ -227,36 +271,17 @@ try:
     print(f"Recall pondéré: {test_recall:.4f}")
     
     # Sauvegarder le modèle
-    model_path = "model/truly_balanced_sentiment_model"
+    model_path = "model/best_model/balanced_sentiment_model"
     model.write().overwrite().save(model_path)
     print(f"\nModèle sauvegardé avec succès à: {model_path}")
-    
-    # Add per-class metrics evaluation
-    def evaluate_per_class(predictions, label_col="indexedLabel", pred_col="prediction"):
-        # Get predictions and labels
-        predictionAndLabels = predictions.select(pred_col, label_col).rdd
-        metrics = MulticlassMetrics(predictionAndLabels)
-        
-        # Overall metrics
-        print(f"Overall Accuracy: {metrics.accuracy}")
-        print(f"Weighted Precision: {metrics.weightedPrecision}")
-        print(f"Weighted Recall: {metrics.weightedRecall}")
-        print(f"Weighted F1 Score: {metrics.weightedFMeasure()}")
-        
-        # Per-class metrics
-        print("\nPer-Class Metrics:")
-        labels = predictions.select(label_col).distinct().rdd.map(lambda x: x[0]).collect()
-        for label in sorted(labels):
-            print(f"\nClass {label}:")
-            print(f"Precision: {metrics.precision(label):.4f}")
-            print(f"Recall: {metrics.recall(label):.4f}")
-            print(f"F1 Score: {metrics.fMeasure(label):.4f}")
-        
-        # Return metrics for further analysis
-        return metrics
+
 
     # Call this function after model evaluation
     metrics = evaluate_per_class(test_predictions)
+    
+    # After applying StringIndexer, check distribution
+    indexed_df = label_indexer.fit(train_df).transform(train_df)
+    indexed_df.groupBy("indexedLabel").count().show()
     
 except Exception as e:
     print(f"\nErreur pendant l'entraînement: {e}")

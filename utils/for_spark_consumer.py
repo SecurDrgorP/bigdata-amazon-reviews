@@ -1,3 +1,4 @@
+import os
 import re
 
 from pyspark.sql.functions import col, current_timestamp
@@ -24,6 +25,9 @@ def simple_lemmatize(text):
 
 # Define function to write each batch to MongoDB
 def write_to_mongodb(batch_df, batch_id):
+    """
+    Write the batch dataframe to MongoDB.
+    """
     if not batch_df.isEmpty():
         # Format data for MongoDB
         batch_to_save = batch_df.select(
@@ -31,17 +35,17 @@ def write_to_mongodb(batch_df, batch_id):
             col("prediction"),
             col("asin"),
             col("reviewTime"),
-            col("reviewerID")
+            col("reviewerID"),
+            current_timestamp().alias("ingestion_time")
         )
         
-        # Add timestamp
-        batch_to_save = batch_to_save.withColumn("ingestion_time", current_timestamp())
-        
-        # Save to MongoDB (using standard batch writes, not streaming)
+        # Save to MongoDB (using standard batch writes)
         batch_to_save.write \
             .format("mongo") \
-            .option("uri", "mongodb://localhost:27017/amazon_reviews.predictions") \
+            .option("uri", "mongodb://localhost:27017") \
+            .option("database", "amazon_reviews") \
+            .option("collection", "predictions") \
             .mode("append") \
             .save()
         
-        print(f"Batch {batch_id}: Written {batch_df.count()} records to MongoDB")
+        print(f"Batch {batch_id} successfully written to MongoDB")
