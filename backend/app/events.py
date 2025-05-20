@@ -49,3 +49,24 @@ def background_thread(socketio):
                     print(f"Emitted updates at {time.strftime('%H:%M:%S')}")
             except Exception as e:
                 print(f"Error in background thread: {e}")
+
+def register_events(socketio):
+    @socketio.on('connect')
+    def handle_connect():
+        global thread
+        if thread is None or not thread.is_alive():
+            thread = Thread(target=background_thread, args=(socketio,))
+            thread.daemon = True
+            thread.start()
+        
+        # Send initial data on connect
+        emit('update_sentiment_counts', get_sentiment_counts())
+        emit('update_sentiment_trend', get_sentiment_by_time())
+        emit('update_recent_reviews', get_recent_reviews())
+        emit('update_product_sentiment', get_product_sentiment_distribution())
+        
+        print("Client connected")
+    
+    @socketio.on('disconnect')
+    def handle_disconnect():
+        print("Client disconnected")
