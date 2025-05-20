@@ -5,39 +5,35 @@ import os
 
 # Fix the path calculation - only go up 2 levels from the script location
 current_dir = os.path.dirname(os.path.abspath(__file__))
-project_root = os.path.dirname(os.path.dirname(current_dir))  # Remove one dirname call
+project_root = os.path.dirname(os.path.dirname(current_dir))
 data_path = os.path.join(project_root, 'data', 'test_data.json')
 
 print(f"Looking for data file at: {data_path}")  # Debug path
 
-brocker = os.getenv("KAFKA_BROKER")
-# Connection to Kafka broker with proper configuration
+broker = os.getenv("KAFKA_BROKER")
 producer = KafkaProducer(
-    bootstrap_servers=brocker,
+    bootstrap_servers=broker,
     value_serializer=lambda v: json.dumps(v).encode('utf-8'),
     request_timeout_ms=10000,
     api_version=(0, 10, 1)
 )
 
-# Topic name
 TOPIC = os.getenv("KAFKA_TOPIC")
 
 try:
-    # Verify the file exists before trying to open it
     if not os.path.exists(data_path):
         raise FileNotFoundError(f"Data file not found at {data_path}")
-        
-    # Load and send data
+
     with open(data_path, 'r') as f:
         for line in f:
             try:
                 review = json.loads(line)
                 producer.send(TOPIC, value=review)
-                print(f"✅ Avis envoyé : {review['reviewerID']}")
+                print(f"✅ Review sent: {review['reviewerID']}")
                 time.sleep(1)  # Simulate real-time flow
             except Exception as e:
-                print(f"❌ Erreur : {e}")
-    
+                print(f"❌ Error: {e}")
+
     producer.flush()
     print("✅ All messages sent successfully")
 except Exception as e:

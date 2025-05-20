@@ -11,29 +11,31 @@ sys.path.insert(0, project_root)
 
 from utils.for_spark_consumer import clean_text, simple_lemmatize, write_to_mongodb
 
-
-# Créer une session Spark avec support Kafka et MongoDB
+# Create a Spark session with Kafka and MongoDB support
 spark = SparkSession.builder \
     .appName("KafkaReviewConsumer") \
-    .config("spark.jars.packages", 
-            "org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.5,org.mongodb.spark:mongo-spark-connector_2.12:3.0.2") \
+    .config(
+        "spark.jars.packages",
+        "org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.5,"
+        "org.mongodb.spark:mongo-spark-connector_2.12:3.0.2"
+    ) \
     .getOrCreate()
 
 spark.sparkContext.setLogLevel("WARN")
 
-# Enregistrer les fonctions UDF
+# Register UDFs
 clean_text_udf = udf(clean_text, StringType())
 lemmatize_udf = udf(simple_lemmatize, StringType())
 
-# Charger le modèle
+# Load the model
 try:
     model = PipelineModel.load("model/best_model/balanced_sentiment_model")
-    print("Modèle chargé avec succès!")
+    print("Model loaded successfully!")
 except Exception as e:
-    print(f"Erreur lors du chargement du modèle: {e}")
+    print(f"Error loading model: {e}")
     exit(1)
 
-# Schéma du flux Kafka
+# Define the Kafka message schema
 schema = StructType() \
     .add("reviewText", StringType()) \
     .add("overall", FloatType()) \
@@ -41,34 +43,34 @@ schema = StructType() \
     .add("reviewerID", StringType()) \
     .add("asin", StringType())
 
-brocker = os.getenv("KAFKA_BROKER")
+broker = os.getenv("KAFKA_BROKER")
 topic = os.getenv("KAFKA_TOPIC")
-# Lire les messages Kafka
+
+# Read messages from Kafka
 df_raw = spark.readStream \
     .format("kafka") \
-    .option("kafka.bootstrap.servers", brocker) \
+    .option("kafka.bootstrap.servers", broker) \
     .option("subscribe", topic) \
     .option("startingOffsets", "latest") \
     .load()
 
-# Convertir le JSON
+# Parse JSON payload
 df_json = df_raw.selectExpr("CAST(value AS STRING) as json") \
     .select(from_json(col("json"), schema).alias("data")) \
     .select("data.*")
 
-# Appliquer le prétraitement pour créer la colonne lemmatized_text
+# Apply preprocessing to add the lemmatized_text column
 df_preprocessed = df_json \
     .withColumn("lemmatized_text", lemmatize_udf(col("reviewText"))) \
-    .withColumn("label", lit(0.0))  # Add dummy label column for the model pipeline
+    .withColumn("label", lit(0.0))  # add dummy label for the pipeline
 
-# Afficher le schéma pour vérifier
-print("Schéma après prétraitement:")
+print("Schema after preprocessing:")
 df_preprocessed.printSchema()
 
-# Préparer les données pour le modèle
+# Run the model
 df_predicted = model.transform(df_preprocessed)
 
-# Format data for MongoDB
+# Select fields to save to MongoDB
 df_to_save = df_predicted.select(
     col("reviewText").alias("text"),
     col("prediction"),
@@ -77,28 +79,28 @@ df_to_save = df_predicted.select(
     col("reviewerID")
 )
 
-# Ajouter une colonne horodatée en UTC
+# Add ingestion timestamp in UTC
 df_to_save = df_to_save.withColumn("ingestion_time", current_timestamp())
 
-# Create directory for checkpoint if it doesn't exist
+# Ensure checkpoint directory exists
 os.makedirs("/tmp/checkpoint", exist_ok=True)
 
-# Affichage des résultats dans la console (pour debug)
-console_query = df_predicted.select("prediction", "reviewText", "overall", "lemmatized_text", "probability") \
-    .writeStream \
+# Debug: print predictions to console
+console_query = df_predicted.select(
+    "prediction", "reviewText", "overall", "lemmatized_text", "probability"
+).writeStream \
     .outputMode("append") \
     .format("console") \
     .option("truncate", False) \
     .start()
 
-# Use foreachBatch instead of direct MongoDB writer
-mongo_query = df_predicted \
-    .writeStream \
+# Write each batch to MongoDB
+mongo_query = df_predicted.writeStream \
     .foreachBatch(write_to_mongodb) \
     .outputMode("append") \
     .option("checkpointLocation", "/tmp/checkpoint") \
     .start()
 
-# Wait for both queries to terminate
+# Await termination of both streams
 console_query.awaitTermination()
 mongo_query.awaitTermination()

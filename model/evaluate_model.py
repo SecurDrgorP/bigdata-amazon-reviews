@@ -10,11 +10,10 @@ from pyspark.ml.feature import Tokenizer, StopWordsRemover, HashingTF, IDF, Stri
 from pyspark.ml.classification import LinearSVC, OneVsRest
 from pyspark.ml import Pipeline
 from pyspark.ml.evaluation import MulticlassClassificationEvaluator
-from pyspark.ml.tuning import CrossValidator, ParamGridBuilder
 
 from utils.for_evaluate_model import evaluate_per_class
 
-# Créer une session Spark
+# Create a Spark session
 spark = SparkSession.builder \
     .appName("BalancedReviewSentimentClassifier") \
     .config("spark.driver.memory", "4g") \
@@ -24,55 +23,50 @@ spark = SparkSession.builder \
     .config("spark.memory.storageFraction", "0.2") \
     .getOrCreate()
 
-# Configurer le niveau de log pour réduire les sorties
+# Reduce log verbosity
 spark.sparkContext.setLogLevel("WARN")
 
-# Charger les données (prétraitées en pandas et sauvegardées en CSV)
+# Load preprocessed CSV data
 df = spark.read.csv("data/cleaned_reviews.csv", header=True, inferSchema=True)
 
-# Vérifier le schéma et les données nulles
+# Check schema and nulls
 print("Schema:")
 df.printSchema()
 
-# Assurer que label est en format numérique et éliminer toute valeur aberrante
+# Keep only valid labels and cast to double
 df = df.filter((col("label") == 0) | (col("label") == 1) | (col("label") == 2))
 df = df.withColumn("label", col("label").cast("double"))
 
-# Remplacer les valeurs nulles dans la colonne "lemmatized_text" par une chaîne vide
+# Replace nulls in 'lemmatized_text' with empty string
 df = df.fillna({'lemmatized_text': ''})
 
-# Afficher des statistiques sur les classes avant équilibrage
-print("\nDistribution des classes AVANT équilibrage:")
+# Show class distribution BEFORE balancing
+print("\nClass distribution BEFORE balancing:")
 class_counts_before = df.groupBy("label").count().orderBy("label")
 class_counts_before.show()
 
-# ------- RÉÉQUILIBRAGE DES DONNÉES -------
+# ------- DATA REBALANCING -------
 
-# 1. Séparer les données par classe
 df_class_0 = df.filter(col("label") == 0.0)
 df_class_1 = df.filter(col("label") == 1.0)
 df_class_2 = df.filter(col("label") == 2.0)
 
-# Compter les échantillons par classe
 count_class_0 = df_class_0.count()
 count_class_1 = df_class_1.count()
 count_class_2 = df_class_2.count()
 
-print(f"Classe 0: {count_class_0} échantillons")
-print(f"Classe 1: {count_class_1} échantillons")
-print(f"Classe 2: {count_class_2} échantillons")
+print(f"Class 0: {count_class_0} samples")
+print(f"Class 1: {count_class_1} samples")
+print(f"Class 2: {count_class_2} samples")
 
-# 2. Sous-échantillonner la classe majoritaire
-# Limiter la classe 2 à max 3x la taille de la classe 0
+# Subsample majority class 2 to at most 3x class 0
 target_count_2 = min(count_class_0 * 3, count_class_2)
 sampled_df_class_2 = df_class_2.orderBy(rand()).limit(int(target_count_2))
 
-# 3. Sur-échantillonner les classes minoritaires
-# Calculer combien de fois nous devons dupliquer
+# Oversample minority classes
 oversample_ratio_0 = max(1, int(target_count_2 / count_class_0))
 oversample_ratio_1 = max(1, int(target_count_2 / count_class_1))
 
-# Suréchantillonnage par réplication
 oversampled_df_class_0 = df_class_0
 oversampled_df_class_1 = df_class_1
 
@@ -82,165 +76,96 @@ for _ in range(oversample_ratio_0 - 1):
 for _ in range(oversample_ratio_1 - 1):
     oversampled_df_class_1 = oversampled_df_class_1.union(df_class_1)
 
-# 4. Combiner les données équilibrées
+# Combine balanced data
 balanced_df = oversampled_df_class_0.union(oversampled_df_class_1).union(sampled_df_class_2)
 
-# Afficher des statistiques sur les classes après équilibrage
-print("\nDistribution des classes APRÈS équilibrage:")
+# Show class distribution AFTER balancing
+print("\nClass distribution AFTER balancing:")
 class_counts_after = balanced_df.groupBy("label").count().orderBy("label")
 class_counts_after.show()
 
-# 5. Mélanger les données pour éviter les biais d'ordre
+# Shuffle to remove ordering bias
 balanced_df = balanced_df.orderBy(rand())
 
-# Séparation en ensembles d'entraînement/validation/test en préservant les proportions des classes
+# Split into train/validation/test
 train_df, temp_df = balanced_df.randomSplit([0.8, 0.2], seed=42)
 validation_df, test_df = temp_df.randomSplit([0.5, 0.5], seed=42)
 
-print(f"\nDonnées d'entraînement: {train_df.count()} lignes")
-print(f"Données de validation: {validation_df.count()} lignes")
-print(f"Données de test: {test_df.count()} lignes")
+print(f"\nTraining set size: {train_df.count()} rows")
+print(f"Validation set size: {validation_df.count()} rows")
+print(f"Test set size: {test_df.count()} rows")
 
-# Vérifier l'équilibre dans les ensembles
-print("\nDistribution des classes dans l'ensemble d'entraînement:")
+# Verify class balance in each split
+print("\nTraining set class distribution:")
 train_df.groupBy("label").count().orderBy("label").show()
 
-print("\nDistribution des classes dans l'ensemble de validation:")
+print("\nValidation set class distribution:")
 validation_df.groupBy("label").count().orderBy("label").show()
 
-print("\nDistribution des classes dans l'ensemble de test:")
+print("\nTest set class distribution:")
 test_df.groupBy("label").count().orderBy("label").show()
 
-# Exporter le jeu de test en JSON
+# Export test set in JSON directory
 test_json_dir = os.path.join("data", "test_data_dir.json")
-print(f"\nExportation des données de test vers {test_json_dir}...")
+print(f"\nExporting test data to {test_json_dir}...")
 test_df.write.mode("overwrite").json(test_json_dir)
 
-# Exporter un fichier JSON unique
+# Export single JSON file
 test_single_file_path = os.path.join("data", "test_data.json")
 test_pandas_df = test_df.toPandas()
 test_pandas_df.to_json(test_single_file_path, orient='records', lines=True)
-print(f"Données de test exportées en fichier JSON unique: {test_single_file_path}")
+print(f"Test data exported as single JSON file: {test_single_file_path}")
 
-# Exporter en CSV pour une visualisation plus facile si nécessaire
+# Export CSV if needed
 test_csv_path = os.path.join("data", "test_data.csv")
 test_pandas_df.to_csv(test_csv_path, index=False)
-print(f"Données de test exportées en CSV: {test_csv_path}")
+print(f"Test data exported as CSV: {test_csv_path}")
 
-# Tokenisation
+# Tokenization and n-grams
 tokenizer = Tokenizer(inputCol="lemmatized_text", outputCol="words")
 remover = StopWordsRemover(inputCol="words", outputCol="filtered_words")
-
-# Ajouter extraction de bi-grammes et tri-grammes
 bigram = NGram(n=2, inputCol="filtered_words", outputCol="bigrams")
 trigram = NGram(n=3, inputCol="filtered_words", outputCol="trigrams")
 
-# TF-IDF avec plus de features
-# Traiter unigrammes, bigrammes et trigrammes séparément
-hashingTF_uni = HashingTF(inputCol="filtered_words", outputCol="tf_uni", numFeatures=1000)  # Reduced from 5000
-hashingTF_bi = HashingTF(inputCol="bigrams", outputCol="tf_bi", numFeatures=1000)          # Reduced from 5000
-hashingTF_tri = HashingTF(inputCol="trigrams", outputCol="tf_tri", numFeatures=1000)       # Reduced from 5000
-
+# TF-IDF
+hashingTF_uni = HashingTF(inputCol="filtered_words", outputCol="tf_uni", numFeatures=1000)
+hashingTF_bi = HashingTF(inputCol="bigrams", outputCol="tf_bi", numFeatures=1000)
+hashingTF_tri = HashingTF(inputCol="trigrams", outputCol="tf_tri", numFeatures=1000)
 idf_uni = IDF(inputCol="tf_uni", outputCol="features_uni")
 idf_bi = IDF(inputCol="tf_bi", outputCol="features_bi")
 idf_tri = IDF(inputCol="tf_tri", outputCol="features_tri")
 
-# Total size of feature vector (sum of all TF-IDF features)
-feature_size = 3000  # 1000 for unigrams + 1000 for bigrams + 1000 for trigrams
-
-# Indexation de la classe avec gestion des valeurs nulles
+# Label indexing
 label_indexer = StringIndexer(
     inputCol="label", 
     outputCol="indexedLabel",
-    stringOrderType="alphabetAsc",  # This will keep 0.0, 1.0, 2.0 order
+    stringOrderType="alphabetAsc",
     handleInvalid="keep"
 )
 
-# Add this code to verify label mapping
-print("\nVérification du mapping des labels:")
+print("\nVerifying label mapping:")
 label_model = label_indexer.fit(train_df)
 print("Label ordering:", label_model.labelsArray[0])
 
-# Encodage One-Hot de la variable cible
-# encoder = OneHotEncoder(inputCol="indexedLabel", outputCol="labelVec")
+# One-vs-Rest with LinearSVC
+lsvc = LinearSVC(featuresCol="features", labelCol="indexedLabel", maxIter=50, regParam=0.1)
+ovr = OneVsRest(classifier=lsvc, labelCol="indexedLabel", featuresCol="features")
 
-# Utiliser RandomForest au lieu de LogisticRegression
-# rf = RandomForestClassifier(
-#     featuresCol="features", 
-#     labelCol="indexedLabel",
-#     numTrees=20,
-#     maxDepth=5,
-#     maxBins=16,
-#     minInstancesPerNode=10,
-#     impurity="gini",
-#     seed=42
-# )
-
-# Alternative: Try GBTClassifier which often performs better
-# gbt = GBTClassifier(
-#     featuresCol="features", 
-#     labelCol="indexedLabel",
-#     maxIter=50,
-#     maxDepth=6,
-#     stepSize=0.1
-# )
-
-# Neural network explicitly supporting multi-class
-# mlp = MultilayerPerceptronClassifier(
-#     featuresCol="features",
-#     labelCol="indexedLabel",
-#     layers=[feature_size, 50, 3],  # 3 output nodes for 3 classes
-#     seed=42
-# )
-
-# define a linear SVM
-lsvc = LinearSVC(
-    featuresCol="features",
-    labelCol="indexedLabel",
-    maxIter=50,
-    regParam=0.1
-)
-
-# wrap for multi‐class
-ovr = OneVsRest(
-    classifier=lsvc,
-    labelCol="indexedLabel",
-    featuresCol="features"
-)
-
-# Create parameter grid
-paramGrid = ParamGridBuilder() \
-    .addGrid(lsvc.maxIter, [50]) \
-    .addGrid(lsvc.regParam, [0.1]) \
-    .build()
-
-# Create cross-validator
-crossval = CrossValidator(
-    estimator=ovr,
-    estimatorParamMaps=paramGrid,
-    evaluator=MulticlassClassificationEvaluator(labelCol="indexedLabel", predictionCol="prediction", metricName="f1"),
-    numFolds=2  # Reduced from 3
-)
-
-# Pipeline complète
 pipeline = Pipeline(stages=[
     tokenizer, remover, bigram, trigram,
     hashingTF_uni, idf_uni, hashingTF_bi, idf_bi, hashingTF_tri, idf_tri,
     VectorAssembler(inputCols=["features_uni", "features_bi", "features_tri"], outputCol="features"),
     label_indexer,
-    ovr           # <-- use SVM instead of crossval
+    ovr
 ])
 
 try:
-    # Entraîner le modèle sur les données d'entraînement
-    print("\nEntraînement du modèle en cours...")
+    print("\nStarting model training...")
     model = pipeline.fit(train_df)
     
-    # Évaluer sur les données de validation
-    print("Évaluation du modèle sur l'ensemble de validation...")
+    print("Evaluating model on validation set...")
     val_predictions = model.transform(validation_df)
     
-    # Calculer les métriques d'évaluation sur la validation
     evaluator = MulticlassClassificationEvaluator(
         labelCol="indexedLabel", 
         predictionCol="prediction", 
@@ -251,56 +176,46 @@ try:
     evaluator.setMetricName("accuracy")
     val_accuracy = evaluator.evaluate(val_predictions)
     
-    print(f"\nRésultats de validation:")
-    print(f"F1-score (validation): {val_f1:.4f}")
-    print(f"Accuracy (validation): {val_accuracy:.4f}")
+    print(f"\nValidation results:")
+    print(f"F1-score: {val_f1:.4f}")
+    print(f"Accuracy: {val_accuracy:.4f}")
     
-    # Matrice de confusion sur la validation
-    print("\nMatrice de confusion (validation):")
+    print("\nValidation confusion matrix:")
     val_predictions.groupBy("label", "prediction").count().orderBy("label", "prediction").show()
     
-    # Évaluation finale sur l'ensemble de test
-    print("\nÉvaluation finale sur l'ensemble de test...")
+    print("\nFinal evaluation on test set...")
     test_predictions = model.transform(test_df)
     
-    # Afficher quelques prédictions
-    print("\nExemples de prédictions (test):")
+    print("\nSample test predictions:")
     test_predictions.select("lemmatized_text", "label", "prediction", "rawPrediction")\
         .show(5, truncate=30)
     
-    # Afficher la distribution des prédictions sur l'ensemble de test
-    print("\nDistribution des prédictions (test):")
+    print("\nTest prediction distribution:")
     test_predictions.groupBy("prediction").count().orderBy("prediction").show()
     
-    # Matrice de confusion simplifiée sur le test
-    print("\nMatrice de confusion (test):")
+    print("\nTest confusion matrix:")
     test_predictions.groupBy("label", "prediction").count().orderBy("label", "prediction").show()
     
-    # Calculer les métriques finales sur l'ensemble de test
     test_f1 = evaluator.setMetricName("f1").evaluate(test_predictions)
     test_accuracy = evaluator.setMetricName("accuracy").evaluate(test_predictions)
     test_recall = evaluator.setMetricName("weightedRecall").evaluate(test_predictions)
     
-    print(f"\nRésultats d'évaluation finaux (test):")
+    print(f"\nFinal test metrics:")
     print(f"F1-score: {test_f1:.4f}")
     print(f"Accuracy: {test_accuracy:.4f}")
-    print(f"Recall pondéré: {test_recall:.4f}")
+    print(f"Weighted Recall: {test_recall:.4f}")
     
-    # Sauvegarder le modèle
     model_path = "model/best_model/SVC_Model"
     model.write().overwrite().save(model_path)
-    print(f"\nModèle sauvegardé avec succès à: {model_path}")
+    print(f"\nModel successfully saved at: {model_path}")
 
-
-    # Call this function after model evaluation
     metrics = evaluate_per_class(test_predictions)
     
-    # After applying StringIndexer, check distribution
     indexed_df = label_indexer.fit(train_df).transform(train_df)
     indexed_df.groupBy("indexedLabel").count().show()
     
 except Exception as e:
-    print(f"\nErreur pendant l'entraînement: {e}")
+    print(f"\nError during training: {e}")
     import traceback
     traceback.print_exc()
 finally:

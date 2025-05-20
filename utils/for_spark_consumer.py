@@ -3,7 +3,7 @@ import re
 
 from pyspark.sql.functions import col, current_timestamp
 
-# Fonction de nettoyage du texte
+# Text cleaning function
 def clean_text(text):
     if text is None:
         return ""
@@ -11,25 +11,24 @@ def clean_text(text):
     text = text.lower()
     # Remove punctuation and numbers
     text = re.sub(r'[^a-z\s]', '', text)
-    # Remove extra spaces
+    # Collapse multiple spaces
     text = re.sub(r'\s+', ' ', text).strip()
     return text
 
-# Version simplifiée de lemmatization (sans spaCy pour le streaming)
+# Simplified lemmatization (no spaCy for streaming)
 def simple_lemmatize(text):
-    # This is a simplified version - in production you might want to use a proper lemmatizer
     if text is None:
         return ""
     return clean_text(text)
 
 
-# Define function to write each batch to MongoDB
+# Define function to write each micro-batch to MongoDB
 def write_to_mongodb(batch_df, batch_id):
     """
-    Write the batch dataframe to MongoDB.
+    Write the batch DataFrame to MongoDB.
     """
     if not batch_df.isEmpty():
-        # Format data for MongoDB
+        # Select and rename columns for MongoDB
         batch_to_save = batch_df.select(
             col("reviewText").alias("text"),
             col("prediction"),
@@ -39,7 +38,7 @@ def write_to_mongodb(batch_df, batch_id):
             current_timestamp().alias("ingestion_time")
         )
         
-        # Save to MongoDB (using standard batch writes)
+        # Write to MongoDB
         batch_to_save.write \
             .format("mongo") \
             .option("uri", "mongodb://localhost:27017") \
