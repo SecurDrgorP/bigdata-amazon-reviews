@@ -80,9 +80,11 @@ The system architecture consists of the following components:
    # Edit .env with appropriate values
    ```
 
-4. Install Python dependencies:
+4. Install Python dependencies and the spaCy language model:
    ```bash
    pip install -r requirements.txt
+
+   python -m spacy download en_core_web_sm
    ```
 
 5. Start Docker containers:

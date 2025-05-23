@@ -13,7 +13,7 @@ __pycache__/
 data/spacy_model/
 
 # Ignore data files
-data/*.csv
+# data/*.csv
 data/*.pkl
 data/*.npz
 

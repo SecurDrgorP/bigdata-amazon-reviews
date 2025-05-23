@@ -11,7 +11,4 @@ matplotlib
 spacy
 scikit-learn
 
-download 
-en_core_web_sm
-
 python-dotenv
