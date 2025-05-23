@@ -29,7 +29,41 @@ lemmatize_udf = udf(simple_lemmatize, StringType())
 
 # Load the model
 try:
-    model = PipelineModel.load("model/best_model/balanced_sentiment_model")
+    # Get model directory path using os
+    models_base_dir = os.path.join(project_root, "model", "best_model")
+    
+    # Check if the directory exists
+    if not os.path.exists(models_base_dir):
+        print(f"Models directory not found: {models_base_dir}")
+        exit(1)
+    
+    # List available models
+    available_models = [d for d in os.listdir(models_base_dir) 
+                        if os.path.isdir(os.path.join(models_base_dir, d))]
+    
+    if not available_models:
+        print(f"No models found in {models_base_dir}")
+        exit(1)
+    
+    # Get model name from environment variable
+    model_name = os.getenv("SENTIMENT_MODEL")
+    
+    # If model name not provided or invalid, use the first available model
+    if not model_name or model_name not in available_models:
+        if model_name:
+            print(f"Model '{model_name}' not found.")
+        else:
+            print("No model specified via SENTIMENT_MODEL environment variable.")
+        
+        print(f"Available models: {', '.join(available_models)}")
+        print(f"Using model: {available_models[0]}")
+        model_name = available_models[0]
+    else:
+        print(f"Using specified model: {model_name}")
+    
+    model_path = os.path.join(models_base_dir, model_name)
+    print(f"Loading model from: {model_path}")
+    model = PipelineModel.load(model_path)
     print("Model loaded successfully!")
 except Exception as e:
     print(f"Error loading model: {e}")
