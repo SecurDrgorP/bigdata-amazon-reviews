@@ -1,271 +1,574 @@
-{% extends "layout.html" %}
-
-{% block title %}Amazon Reviews Dashboard{% endblock %}
-
-{% block head %}
-<script src="https://cdn.socket.io/4.4.1/socket.io.min.js"></script>
-{% endblock %}
-
-{% block content %}
-<div class="row mb-4">
-    <div class="col">
-        <h1>Amazon Reviews Sentiment Dashboard</h1>
-        <p class="lead">Real-time sentiment analysis of Amazon product reviews</p>
-        <div class="alert alert-success" id="status" role="alert">
-            <span class="spinner-grow spinner-grow-sm" role="status" aria-hidden="true"></span>
-            Listening for real-time updates...
-        </div>
-    </div>
-</div>
-
-<div class="row">
-    <div class="col-md-6 mb-4">
-        <div class="card h-100">
-            <div class="card-header">
-                Sentiment Distribution
-            </div>
-            <div class="card-body">
-                <canvas id="sentimentChart"></canvas>
-            </div>
-        </div>
-    </div>
-    <div class="col-md-6 mb-4">
-        <div class="card h-100">
-            <div class="card-header">
-                Sentiment Trend Over Time
-            </div>
-            <div class="card-body">
-                <canvas id="trendChart"></canvas>
-            </div>
-        </div>
-    </div>
-</div>
-
-<div class="row">
-    <div class="col-md-6 mb-4">
-        <div class="card h-100">
-            <div class="card-header">
-                Top Products by Sentiment
-            </div>
-            <div class="card-body">
-                <canvas id="productChart"></canvas>
-            </div>
-        </div>
-    </div>
-    <div class="col-md-6 mb-4">
-        <div class="card h-100">
-            <div class="card-header">
-                Recent Reviews
-            </div>
-            <div class="card-body p-0">
-                <div id="recentReviews" class="list-group list-group-flush"></div>
-            </div>
-        </div>
-    </div>
-</div>
-{% endblock %}
-
-{% block scripts %}
-<script>
-// Store chart objects to update them later
-let sentimentChart, trendChart, productChart;
-let socket;
-
-function connectSocket() {
-    // Connect to WebSocket server
-    socket = io();
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Amazon Reviews Sentiment Dashboard</title>
     
-    // Handle connection events
-    socket.on('connect', function() {
-        document.getElementById('status').className = 'alert alert-success';
-        document.getElementById('status').innerHTML = 
-            '<span class="spinner-grow spinner-grow-sm" role="status" aria-hidden="true"></span> ' + 
-            'Connected! Receiving real-time updates...';
-    });
+    <!-- Bootstrap CSS -->
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.0/css/bootstrap.min.css" rel="stylesheet">
     
-    socket.on('disconnect', function() {
-        document.getElementById('status').className = 'alert alert-danger';
-        document.getElementById('status').textContent = 'Disconnected! Trying to reconnect...';
-    });
+    <!-- Chart.js -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.9.1/chart.min.js"></script>
     
-    // Handle data updates
-    socket.on('update_sentiment_counts', function(data) {
-        updateSentimentChart(data);
-    });
+    <!-- Socket.IO -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.4.1/socket.io.min.js"></script>
     
-    socket.on('update_sentiment_trend', function(data) {
-        updateTrendChart(data);
-    });
-    
-    socket.on('update_recent_reviews', function(data) {
-        updateRecentReviews(data);
-    });
-    
-    socket.on('update_product_sentiment', function(data) {
-        updateProductChart(data);
-    });
-}
-
-function updateSentimentChart(data) {
-    if (sentimentChart) {
-        sentimentChart.data.datasets[0].data = [data.negative, data.positive];
-        sentimentChart.update();
-    }
-}
-
-function updateTrendChart(data) {
-    if (trendChart) {
-        trendChart.data.labels = data.days;
-        trendChart.data.datasets[0].data = data.positive;
-        trendChart.data.datasets[1].data = data.negative;
-        trendChart.update();
-    }
-}
-
-function updateProductChart(data) {
-    if (productChart && data.length > 0) {
-        const productLabels = data.map(item => item._id.substring(0, 8) + '...');
-        const positiveData = data.map(item => item.positive);
-        const negativeData = data.map(item => item.negative);
+    <style>
+        .status-connected { background: linear-gradient(45deg, #28a745, #20c997); }
+        .status-error { background: linear-gradient(45deg, #dc3545, #fd7e14); }
+        .status-waiting { background: linear-gradient(45deg, #ffc107, #fd7e14); }
         
-        productChart.data.labels = productLabels;
-        productChart.data.datasets[0].data = positiveData;
-        productChart.data.datasets[1].data = negativeData;
-        productChart.update();
-    }
-}
-
-function updateRecentReviews(reviews) {
-    const reviewsContainer = document.getElementById('recentReviews');
-    
-    // Clear current reviews
-    reviewsContainer.innerHTML = '';
-    
-    // Add new reviews
-    reviews.forEach(review => {
-        const sentimentClass = review.sentiment === 'Positive' ? 'text-success' : 'text-danger';
-        const textExcerpt = review.text ? 
-            (review.text.length > 100 ? review.text.substring(0, 100) + '...' : review.text) : 
-            'No text available';
+        .card {
+            transition: transform 0.2s, box-shadow 0.2s;
+            border: none;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
         
-        reviewsContainer.innerHTML += `
-            <div class="list-group-item">
-                <div class="d-flex justify-content-between align-items-center">
-                    <h6 class="mb-1 text-truncate" style="max-width: 70%;">Product: ${review.asin || 'Unknown'}</h6>
-                    <span class="badge ${sentimentClass === 'text-success' ? 'bg-success' : 'bg-danger'}">${review.sentiment}</span>
+        .card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 8px rgba(0,0,0,0.15);
+        }
+        
+        .chart-container {
+            position: relative;
+            height: 400px;
+            margin: 20px 0;
+        }
+        
+        .recent-review {
+            border-left: 4px solid #007bff;
+            padding: 10px;
+            margin: 5px 0;
+            background: #f8f9fa;
+            border-radius: 0 5px 5px 0;
+        }
+        
+        .sentiment-positive { border-left-color: #28a745; }
+        .sentiment-negative { border-left-color: #dc3545; }
+        .sentiment-neutral { border-left-color: #ffc107; }
+        
+        .pulse {
+            animation: pulse 2s infinite;
+        }
+        
+        @keyframes pulse {
+            0% { opacity: 1; }
+            50% { opacity: 0.5; }
+            100% { opacity: 1; }
+        }
+        
+        .product-row:hover {
+            background-color: #f8f9fa;
+        }
+        
+        .badge-custom {
+            font-size: 0.8em;
+            padding: 0.4em 0.6em;
+        }
+    </style>
+</head>
+<body class="bg-light">
+    <div class="container-fluid py-4">
+        <!-- Header -->
+        <div class="row mb-4">
+            <div class="col">
+                <h1 class="display-4 text-primary">
+                    <i class="fas fa-chart-line"></i> Amazon Reviews Sentiment Dashboard
+                </h1>
+                <p class="lead text-muted">Real-time sentiment analysis of Amazon product reviews</p>
+                <div class="alert alert-info d-flex align-items-center" id="status" role="alert">
+                    <div class="spinner-grow spinner-grow-sm me-2 pulse" role="status" aria-hidden="true"></div>
+                    <span id="statusText">Connecting to real-time data stream...</span>
+                    <button class="btn btn-outline-primary btn-sm ms-auto" onclick="requestManualUpdate()">
+                        Refresh Data
+                    </button>
                 </div>
-                <p class="mb-1">${textExcerpt}</p>
-                <small class="text-muted">Date: ${review.ingestion_time || 'Unknown'}</small>
             </div>
-        `;
-    });
-}
+        </div>
 
-document.addEventListener('DOMContentLoaded', async function() {
-    try {
-        // Fetch initial data and create charts
-        const sentimentData = await fetch('/api/sentiment_counts').then(res => res.json());
-        sentimentChart = new Chart(document.getElementById('sentimentChart'), {
-            type: 'doughnut',
-            data: {
-                labels: sentimentData.labels,
-                datasets: [{
-                    data: sentimentData.data,
-                    backgroundColor: ['#ff6384', '#36a2eb'],
-                    hoverBackgroundColor: ['#ff4c75', '#2a96e0']
-                }]
-            },
-            options: {
-                responsive: true,
-                plugins: {
-                    legend: { position: 'bottom' }
+        <!-- Stats Cards Row -->
+        <div class="row mb-4">
+            <div class="col-xl-2 col-md-4 col-sm-6 mb-3">
+                <div class="card text-center h-100">
+                    <div class="card-body">
+                        <h5 class="card-title text-muted">Total Reviews</h5>
+                        <h2 class="card-text text-primary" id="totalReviews">-</h2>
+                        <small class="text-muted">Analyzed</small>
+                    </div>
+                </div>
+            </div>
+            <div class="col-xl-2 col-md-4 col-sm-6 mb-3">
+                <div class="card text-center h-100">
+                    <div class="card-body">
+                        <h5 class="card-title text-muted">Positive</h5>
+                        <h2 class="card-text text-success" id="positiveCount">-</h2>
+                        <small class="text-muted" id="positivePercent">-</small>
+                    </div>
+                </div>
+            </div>
+            <div class="col-xl-2 col-md-4 col-sm-6 mb-3">
+                <div class="card text-center h-100">
+                    <div class="card-body">
+                        <h5 class="card-title text-muted">Negative</h5>
+                        <h2 class="card-text text-danger" id="negativeCount">-</h2>
+                        <small class="text-muted" id="negativePercent">-</small>
+                    </div>
+                </div>
+            </div>
+            <div class="col-xl-2 col-md-4 col-sm-6 mb-3">
+                <div class="card text-center h-100">
+                    <div class="card-body">
+                        <h5 class="card-title text-muted">Neutral</h5>
+                        <h2 class="card-text text-warning" id="neutralCount">-</h2>
+                        <small class="text-muted" id="neutralPercent">-</small>
+                    </div>
+                </div>
+            </div>
+            <div class="col-xl-2 col-md-4 col-sm-6 mb-3">
+                <div class="card text-center h-100">
+                    <div class="card-body">
+                        <h5 class="card-title text-muted">Valid Predictions</h5>
+                        <h2 class="card-text text-info" id="validPredictions">-</h2>
+                        <small class="text-muted">Processed</small>
+                    </div>
+                </div>
+            </div>
+            <div class="col-xl-2 col-md-4 col-sm-6 mb-3">
+                <div class="card text-center h-100">
+                    <div class="card-body">
+                        <h5 class="card-title text-muted">Last Update</h5>
+                        <h6 class="card-text text-secondary" id="lastUpdate">-</h6>
+                        <small class="text-muted" id="connectionStatus">Connecting...</small>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Charts Row -->
+        <div class="row mb-4">
+            <!-- Sentiment Distribution Pie Chart -->
+            <div class="col-lg-6 mb-4">
+                <div class="card h-100">
+                    <div class="card-header bg-primary text-white">
+                        <h5 class="card-title mb-0">Sentiment Distribution</h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="chart-container">
+                            <canvas id="sentimentPieChart"></canvas>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Sentiment Trend Line Chart -->
+            <div class="col-lg-6 mb-4">
+                <div class="card h-100">
+                    <div class="card-header bg-success text-white d-flex justify-content-between align-items-center">
+                        <h5 class="card-title mb-0">Sentiment Trends (Last 7 Days)</h5>
+                        <select class="form-select form-select-sm w-auto" id="trendDaysSelect" onchange="updateTrendDays()">
+                            <option value="3">3 Days</option>
+                            <option value="7" selected>7 Days</option>
+                            <option value="14">14 Days</option>
+                            <option value="30">30 Days</option>
+                        </select>
+                    </div>
+                    <div class="card-body">
+                        <div class="chart-container">
+                            <canvas id="sentimentTrendChart"></canvas>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Content Row -->
+        <div class="row">
+            <!-- Recent Reviews -->
+            <div class="col-lg-6 mb-4">
+                <div class="card h-100">
+                    <div class="card-header bg-info text-white">
+                        <h5 class="card-title mb-0">Recent Reviews</h5>
+                    </div>
+                    <div class="card-body" style="max-height: 500px; overflow-y: auto;">
+                        <div id="recentReviews">
+                            <div class="text-center">
+                                <div class="spinner-border text-primary" role="status">
+                                    <span class="visually-hidden">Loading...</span>
+                                </div>
+                                <p class="mt-2">Loading recent reviews...</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Product Sentiment Distribution -->
+            <div class="col-lg-6 mb-4">
+                <div class="card h-100">
+                    <div class="card-header bg-warning text-white">
+                        <h5 class="card-title mb-0">Top Reviewers by Activity</h5>
+                    </div>
+                    <div class="card-body" style="max-height: 500px; overflow-y: auto;">
+                        <div id="productSentiment">
+                            <div class="text-center">
+                                <div class="spinner-border text-warning" role="status">
+                                    <span class="visually-hidden">Loading...</span>
+                                </div>
+                                <p class="mt-2">Loading product data...</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Specific Product Query -->
+        <div class="row mt-4">
+            <div class="col-12">
+                <div class="card">
+                    <div class="card-header bg-secondary text-white">
+                        <h5 class="card-title mb-0">Product-Specific Analysis</h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="row align-items-center">
+                            <div class="col-md-4">
+                                <div class="input-group">
+                                    <input type="text" class="form-control" id="productAsin" placeholder="Enter Product ASIN" value="B00004Y2UT">
+                                    <button class="btn btn-outline-secondary" type="button" onclick="querySpecificProduct()">
+                                        Search
+                                    </button>
+                                </div>
+                            </div>
+                            <div class="col-md-8">
+                                <div id="specificProductResult" class="mt-2">
+                                    <small class="text-muted">Enter a product ASIN to see its sentiment analysis</small>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Bootstrap JS -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.0/js/bootstrap.bundle.min.js"></script>
+
+    <script>
+        // Global variables
+        let socket;
+        let sentimentPieChart;
+        let sentimentTrendChart;
+        let isConnected = false;
+
+        // Initialize Socket.IO connection
+        function initializeSocket() {
+            socket = io();
+            
+            // Connection events
+            socket.on('connect', function() {
+                console.log('Connected to server');
+                isConnected = true;
+                updateStatus('Connected to real-time data stream', 'success');
+            });
+
+            socket.on('disconnect', function() {
+                console.log('Disconnected from server');
+                isConnected = false;
+                updateStatus('Disconnected from server', 'error');
+            });
+
+            socket.on('connection_status', function(data) {
+                console.log('Connection status:', data);
+                updateStatus(data.message, data.status === 'connected' ? 'success' : 'error');
+            });
+
+            // Data update events
+            socket.on('update_sentiment_counts', updateSentimentCounts);
+            socket.on('update_sentiment_trend', updateSentimentTrend);
+            socket.on('update_recent_reviews', updateRecentReviews);
+            socket.on('update_product_sentiment', updateProductSentiment);
+            socket.on('update_specific_product', updateSpecificProduct);
+            socket.on('update_stats', updateStats);
+            socket.on('last_update', updateLastUpdateTime);
+            
+            socket.on('heartbeat', function(data) {
+                document.getElementById('connectionStatus').textContent = 'Live';
+            });
+
+            socket.on('manual_update_response', function(data) {
+                if (data.status === 'success') {
+                    updateStatus('Data refreshed successfully', 'success');
+                } else {
+                    updateStatus('Error refreshing data: ' + data.message, 'error');
                 }
-            }
-        });
-        
-        const trendData = await fetch('/api/sentiment_by_time').then(res => res.json());
-        trendChart = new Chart(document.getElementById('trendChart'), {
-            type: 'line',
-            data: {
-                labels: trendData.days,
-                datasets: [
-                    {
-                        label: 'Positive',
-                        data: trendData.positive,
-                        borderColor: '#36a2eb',
-                        backgroundColor: 'rgba(54, 162, 235, 0.2)',
-                        fill: true
-                    },
-                    {
-                        label: 'Negative',
-                        data: trendData.negative,
-                        borderColor: '#ff6384',
-                        backgroundColor: 'rgba(255, 99, 132, 0.2)',
-                        fill: true
-                    }
-                ]
-            },
-            options: {
-                responsive: true,
-                scales: {
-                    y: { beginAtZero: true }
+            });
+        }
+
+        // Initialize charts
+        function initializeCharts() {
+            // Sentiment Pie Chart
+            const pieCtx = document.getElementById('sentimentPieChart').getContext('2d');
+            sentimentPieChart = new Chart(pieCtx, {
+                type: 'doughnut',
+                data: {
+                    labels: ['Positive', 'Negative', 'Neutral'],
+                    datasets: [{
+                        data: [0, 0, 0],
+                        backgroundColor: ['#28a745', '#dc3545', '#ffc107'],
+                        borderWidth: 2,
+                        borderColor: '#fff'
+                    }]
                 },
-                animation: {
-                    duration: 500
-                }
-            }
-        });
-        
-        const productData = await fetch('/api/product_sentiment').then(res => res.json());
-        const productLabels = productData.map(item => item._id.substring(0, 8) + '...');
-        const positiveData = productData.map(item => item.positive);
-        const negativeData = productData.map(item => item.negative);
-        
-        productChart = new Chart(document.getElementById('productChart'), {
-            type: 'bar',
-            data: {
-                labels: productLabels,
-                datasets: [
-                    {
-                        label: 'Positive',
-                        data: positiveData,
-                        backgroundColor: 'rgba(54, 162, 235, 0.7)',
-                        borderColor: '#36a2eb',
-                        borderWidth: 1
-                    },
-                    {
-                        label: 'Negative',
-                        data: negativeData,
-                        backgroundColor: 'rgba(255, 99, 132, 0.7)',
-                        borderColor: '#ff6384',
-                        borderWidth: 1
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            position: 'bottom'
+                        }
                     }
-                ]
-            },
-            options: {
-                responsive: true,
-                scales: {
-                    x: { stacked: true },
-                    y: { stacked: true, beginAtZero: true }
-                },
-                animation: {
-                    duration: 500
                 }
+            });
+
+            // Sentiment Trend Chart
+            const trendCtx = document.getElementById('sentimentTrendChart').getContext('2d');
+            sentimentTrendChart = new Chart(trendCtx, {
+                type: 'line',
+                data: {
+                    labels: [],
+                    datasets: [
+                        {
+                            label: 'Positive',
+                            data: [],
+                            borderColor: '#28a745',
+                            backgroundColor: 'rgba(40, 167, 69, 0.1)',
+                            tension: 0.4
+                        },
+                        {
+                            label: 'Negative',
+                            data: [],
+                            borderColor: '#dc3545',
+                            backgroundColor: 'rgba(220, 53, 69, 0.1)',
+                            tension: 0.4
+                        },
+                        {
+                            label: 'Neutral',
+                            data: [],
+                            borderColor: '#ffc107',
+                            backgroundColor: 'rgba(255, 193, 7, 0.1)',
+                            tension: 0.4
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        y: {
+                            beginAtZero: true
+                        }
+                    },
+                    plugins: {
+                        legend: {
+                            position: 'top'
+                        }
+                    }
+                }
+            });
+        }
+
+        // Update functions
+        function updateStatus(message, type) {
+            const statusElement = document.getElementById('status');
+            const statusText = document.getElementById('statusText');
+            
+            statusText.textContent = message;
+            statusElement.className = `alert alert-${type === 'success' ? 'success' : type === 'error' ? 'danger' : 'info'} d-flex align-items-center`;
+            
+            if (type === 'success') {
+                statusElement.classList.add('status-connected');
+            } else if (type === 'error') {
+                statusElement.classList.add('status-error');
             }
+        }
+
+        function updateSentimentCounts(data) {
+            document.getElementById('positiveCount').textContent = data.positive || 0;
+            document.getElementById('negativeCount').textContent = data.negative || 0;
+            document.getElementById('neutralCount').textContent = data.neutral || 0;
+            
+            const total = (data.positive || 0) + (data.negative || 0) + (data.neutral || 0);
+            document.getElementById('totalReviews').textContent = total;
+            
+            if (total > 0) {
+                document.getElementById('positivePercent').textContent = `${((data.positive || 0) / total * 100).toFixed(1)}%`;
+                document.getElementById('negativePercent').textContent = `${((data.negative || 0) / total * 100).toFixed(1)}%`;
+                document.getElementById('neutralPercent').textContent = `${((data.neutral || 0) / total * 100).toFixed(1)}%`;
+            }
+
+            // Update pie chart
+            if (sentimentPieChart) {
+                sentimentPieChart.data.datasets[0].data = [data.positive || 0, data.negative || 0, data.neutral || 0];
+                sentimentPieChart.update();
+            }
+        }
+
+        function updateSentimentTrend(data) {
+            if (sentimentTrendChart && data.days) {
+                sentimentTrendChart.data.labels = data.days;
+                sentimentTrendChart.data.datasets[0].data = data.positive || [];
+                sentimentTrendChart.data.datasets[1].data = data.negative || [];
+                sentimentTrendChart.data.datasets[2].data = data.neutral || [];
+                sentimentTrendChart.update();
+            }
+        }
+
+        function updateRecentReviews(reviews) {
+            const container = document.getElementById('recentReviews');
+            
+            if (!reviews || reviews.length === 0) {
+                container.innerHTML = '<p class="text-muted text-center">No recent reviews available</p>';
+                return;
+            }
+
+            const reviewsHtml = reviews.map(review => {
+                const sentimentClass = review.sentiment ? review.sentiment.toLowerCase() : 'neutral';
+                const sentimentColor = sentimentClass === 'positive' ? 'success' : sentimentClass === 'negative' ? 'danger' : 'warning';
+                
+                return `
+                    <div class="recent-review sentiment-${sentimentClass} mb-2">
+                        <div class="d-flex justify-content-between align-items-start mb-1">
+                            <span class="badge bg-${sentimentColor} badge-custom">${review.sentiment || 'Unknown'}</span>
+                            <small class="text-muted">${review.ingestion_time || 'Unknown time'}</small>
+                        </div>
+                        <p class="mb-1 small">${review.lemmatized_text || 'No text available'}</p>
+                        <small class="text-muted">Reviewer: ${review.reviewerID || 'Anonymous'}</small>
+                    </div>
+                `;
+            }).join('');
+
+            container.innerHTML = reviewsHtml;
+        }
+
+        function updateProductSentiment(products) {
+            const container = document.getElementById('productSentiment');
+            
+            if (!products || products.length === 0) {
+                container.innerHTML = '<p class="text-muted text-center">No product data available</p>';
+                return;
+            }
+
+            const productsHtml = products.map(product => `
+                <div class="product-row p-2 border-bottom">
+                    <div class="d-flex justify-content-between align-items-center mb-1">
+                        <strong class="text-truncate" style="max-width: 200px;">${product._id || 'Unknown'}</strong>
+                        <span class="badge bg-secondary">${product.total} reviews</span>
+                    </div>
+                    <div class="progress mb-1" style="height: 20px;">
+                        <div class="progress-bar bg-success" style="width: ${product.positive_pct || 0}%"></div>
+                        <div class="progress-bar bg-danger" style="width: ${product.negative_pct || 0}%"></div>
+                        <div class="progress-bar bg-warning" style="width: ${product.neutral_pct || 0}%"></div>
+                    </div>
+                    <small class="text-muted">
+                        Positive: ${product.positive || 0} (${product.positive_pct || 0}%) | 
+                        Negative: ${product.negative || 0} (${product.negative_pct || 0}%) | 
+                        Neutral: ${product.neutral || 0} (${product.neutral_pct || 0}%)
+                    </small>
+                </div>
+            `).join('');
+
+            container.innerHTML = productsHtml;
+        }
+
+        function updateStats(stats) {
+            if (stats.total_predictions !== undefined) {
+                document.getElementById('totalReviews').textContent = stats.total_predictions;
+            }
+            if (stats.valid_predictions !== undefined) {
+                document.getElementById('validPredictions').textContent = stats.valid_predictions;
+            }
+            if (stats.latest_prediction) {
+                document.getElementById('lastUpdate').textContent = stats.latest_prediction;
+            }
+            
+            const statusText = stats.connection_status || 'unknown';
+            document.getElementById('connectionStatus').textContent = statusText;
+        }
+
+        function updateLastUpdateTime(data) {
+            if (data.timestamp) {
+                document.getElementById('lastUpdate').textContent = data.timestamp;
+            }
+        }
+
+        function updateSpecificProduct(data) {
+            const container = document.getElementById('specificProductResult');
+            
+            if (data && data.total > 0) {
+                const total = data.total;
+                const positivePct = ((data.positive || 0) / total * 100).toFixed(1);
+                const negativePct = ((data.negative || 0) / total * 100).toFixed(1);
+                const neutralPct = ((data.neutral || 0) / total * 100).toFixed(1);
+                
+                container.innerHTML = `
+                    <div class="alert alert-light">
+                        <strong>ASIN: ${data.asin}</strong> - Total Reviews: ${total}
+                        <div class="progress mt-2" style="height: 25px;">
+                            <div class="progress-bar bg-success" style="width: ${positivePct}%" title="Positive: ${data.positive}">
+                                ${data.positive} (${positivePct}%)
+                            </div>
+                            <div class="progress-bar bg-danger" style="width: ${negativePct}%" title="Negative: ${data.negative}">
+                                ${data.negative} (${negativePct}%)
+                            </div>
+                            <div class="progress-bar bg-warning" style="width: ${neutralPct}%" title="Neutral: ${data.neutral}">
+                                ${data.neutral} (${neutralPct}%)
+                            </div>
+                        </div>
+                    </div>
+                `;
+            } else {
+                container.innerHTML = '<div class="alert alert-warning">No data found for this ASIN</div>';
+            }
+        }
+
+        // Utility functions
+        function requestManualUpdate() {
+            if (socket && isConnected) {
+                socket.emit('request_update');
+                updateStatus('Refreshing data...', 'info');
+            } else {
+                updateStatus('Not connected to server', 'error');
+            }
+        }
+
+        function querySpecificProduct() {
+            const asin = document.getElementById('productAsin').value.trim();
+            if (asin && socket && isConnected) {
+                socket.emit('get_specific_product', { asin: asin });
+            }
+        }
+
+        function updateTrendDays() {
+            // This would require backend modification to support different day ranges
+            // For now, just log the selection
+            const days = document.getElementById('trendDaysSelect').value;
+            console.log('Trend days changed to:', days);
+        }
+
+        // Initialize everything when page loads
+        document.addEventListener('DOMContentLoaded', function() {
+            initializeCharts();
+            initializeSocket();
+            
+            // Add enter key support for product search
+            document.getElementById('productAsin').addEventListener('keypress', function(e) {
+                if (e.key === 'Enter') {
+                    querySpecificProduct();
+                }
+            });
         });
-        
-        // Display initial reviews
-        const reviews = await fetch('/api/recent_reviews').then(res => res.json());
-        updateRecentReviews(reviews);
-        
-        // Connect to WebSocket after initial data load
-        connectSocket();
-        
-    } catch (error) {
-        console.error('Error loading dashboard data:', error);
-        document.getElementById('status').className = 'alert alert-danger';
-        document.getElementById('status').textContent = 'Failed to load dashboard data. See console for details.';
-    }
-});
-</script>
-{% endblock %}
+    </script>
+</body>
+</html>

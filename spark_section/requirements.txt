@@ -1,0 +1,9 @@
+
+kafka-python
+pyspark
+pandas
+matplotlib
+spacy
+scikit-learn
+
+python-dotenv

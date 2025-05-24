@@ -1,1 +1,1 @@
-python kafka/producer/kafka_producer.py 
+sudo docker compose up producer
