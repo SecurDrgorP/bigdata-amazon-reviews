@@ -85,8 +85,8 @@ services:
       - kafka-net
     volumes:
       - ./data:/opt/spark-data
-      - ./kafka/consumer:/app/consumer
-      - ./model:/app/model
+      - ./spark_section/consumer:/app/consumer
+      - ./spark_section/model:/app/model
 
   spark-worker-1:
     build:
@@ -107,7 +107,7 @@ services:
       - kafka-net
     volumes:
       - ./data:/opt/spark-data
-      - ./model:/app/model
+      - ./spark_section/model:/app/model
 
   spark-worker-2:
     build:
@@ -128,27 +128,31 @@ services:
       - kafka-net
     volumes:
       - ./data:/opt/data
-      - ./model:/app/model
+      - ./spark_section/model:/app/model
 
   consumer:
     build:
-      context: ./kafka/consumer
+      context: ./spark_section
     container_name: kafka-consumer
     depends_on:
       - kafka
       - spark-master
+      - mongodb
+    environment:
+      - KAFKA_BROKER=kafka:9092
+      - KAFKA_TOPIC=amazon-reviews1
+      - SENTIMENT_MODEL=RF_Model
+      - MONGO_URI=mongodb://mongodb:27017
+      - SPARK_MASTER=spark://spark-master:7077
     networks:
       - kafka-net
     volumes:
-      - ./model:/app/model
-      - ./kafka/consumer:/app
-      - ./utils:/app/utils  # Mount the utils directory
-      - ./model:/app/model
-    command: tail -f /dev/null
+      - ./spark_section/model:/app/model
+    command: spark-submit --master spark://spark-master:7077 --packages org.apache.spark:spark-sql-kafka-0-10_2.12:3.3.0,org.mongodb.spark:mongo-spark-connector_2.12:3.0.2 spark_consumer.py
 
   producer:
     build:
-      context: ./kafka/producer
+      context: ./kafka_producer
     container_name: kafka-producer
     depends_on:
       kafka:

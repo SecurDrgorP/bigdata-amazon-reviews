@@ -14,9 +14,16 @@ from utils.for_spark_consumer import clean_text, simple_lemmatize, write_to_mong
 # Create a Spark session with Kafka and MongoDB support
 spark = SparkSession.builder \
     .appName("KafkaReviewConsumer") \
+    .master("local[*]") \
+    .config("spark.driver.host", "localhost") \
+    .config("spark.driver.bindAddress", "0.0.0.0") \
+    .config("spark.sql.adaptive.enabled", "true") \
+    .config("spark.sql.adaptive.coalescePartitions.enabled", "true") \
+    .config("spark.driver.memory", "2g") \
+    .config("spark.executor.memory", "2g") \
     .config(
         "spark.jars.packages",
-        "org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.5,"
+        "org.apache.spark:spark-sql-kafka-0-10_2.12:3.3.0,"
         "org.mongodb.spark:mongo-spark-connector_2.12:3.0.2"
     ) \
     .getOrCreate()
@@ -29,8 +36,8 @@ lemmatize_udf = udf(simple_lemmatize, StringType())
 
 # Load the model
 try:
-    # Get model directory path using os
-    models_base_dir = os.path.join(project_root, "model", "best_model")
+    # Use the Docker container model path
+    models_base_dir = "/app/model/best_model"
     
     # Check if the directory exists
     if not os.path.exists(models_base_dir):

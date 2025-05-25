@@ -41,7 +41,7 @@ def write_to_mongodb(batch_df, batch_id):
         # Write to MongoDB
         batch_to_save.write \
             .format("mongo") \
-            .option("uri", "mongodb://localhost:27017") \
+            .option("uri", "mongodb://mongodb:27017") \
             .option("database", "amazon_reviews") \
             .option("collection", "predictions") \
             .mode("append") \
