@@ -24,30 +24,6 @@ The system architecture consists of the following components:
 - **Python**: Primary programming language
 - **SpaCy**: NLP library for text processing
 
-## Directory Structure
-
-```
-├── backend/               # Flask web application
-│   ├── app/               # Application modules
-│   └── run.py             # Entry point for the Flask app
-├── data/                  # Data files and models
-├── docker/                # Docker configuration files
-│   ├── kafka/
-│   ├── mongodb/
-│   ├── spark/
-│   └── zookeeper/
-├── kafka/                 # Kafka producers and consumers
-├── model/                 # ML model training and evaluation
-├── preprocessing/         # Data cleaning scripts
-├── utils/                 # Utility functions
-├── docker-compose.yml     # Container orchestration
-├── .env                   # Environment variables
-├── .env.example           # Example environment variables
-├── requirements.txt       # Python dependencies
-├── run_consumer.sh        # Script to run Kafka consumer
-└── run_producer.sh        # Script to run Kafka producer
-```
-
 ## Installation & Setup
 
 ### Prerequisites
@@ -104,13 +80,7 @@ The system architecture consists of the following components:
    ./run_producer.sh
    ```
 
-3. Start the web dashboard:
-   ```bash
-   cd backend
-   python run.py
-   ```
-
-4. Access the dashboard at http://localhost:5000
+3. Access the dashboard at http://localhost:5000
 
 ## Data Pipeline
 
