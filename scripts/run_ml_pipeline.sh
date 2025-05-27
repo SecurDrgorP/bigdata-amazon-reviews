@@ -1,82 +1,58 @@
 #!/bin/bash
 
 # ML Pipeline Runner Script
-# This script runs the ML pipeline using Docker Compose
-
-set -e  # Exit on any error
+set -e
 
 echo "🎯 Amazon Reviews ML Pipeline Runner"
 echo "===================================="
 
-# Function to print colored output
-print_status() {
-    echo -e "\033[1;34m[INFO]\033[0m $1"
-}
+# Simple colored output functions
+print_info() { echo -e "\033[34m[INFO]\033[0m $1"; }
+print_success() { echo -e "\033[32m[SUCCESS]\033[0m $1"; }
+print_error() { echo -e "\033[31m[ERROR]\033[0m $1"; }
 
-print_success() {
-    echo -e "\033[1;32m[SUCCESS]\033[0m $1"
-}
-
-print_error() {
-    echo -e "\033[1;31m[ERROR]\033[0m $1"
-}
-
-print_warning() {
-    echo -e "\033[1;33m[WARNING]\033[0m $1"
-}
-
-# Check if data file exists
+# Check if data exists
 if [ ! -f "data/reviews.json" ]; then
     print_error "data/reviews.json not found!"
-    print_warning "Please ensure your review data is available at data/reviews.json"
     exit 1
 fi
 
-print_status "Found input data at data/reviews.json"
+# Check Docker is available
+if ! command -v docker compose &> /dev/null; then
+    print_error "Docker Compose not found"
+    exit 1
+fi
 
-# Create necessary directories
-mkdir -p data model best_model
-
-print_status "Created necessary directories"
-
-# Run the ML pipeline using Docker Compose
-print_status "Starting ML pipeline execution..."
-if docker-compose --profile ml-training up --build ml-pipeline; then
-    print_success "ML pipeline completed successfully!"
+# Run pipeline
+print_info "Starting ML pipeline..."
+if docker compose --profile ml-training up --build ml-pipeline; then
+    print_success "Pipeline completed!"
 else
-    print_error "ML pipeline failed"
+    print_error "Pipeline failed"
     exit 1
 fi
 
-# Check if model was created
+# Check outputs
+echo ""
+echo "📊 Results:"
+echo "==========="
+
+check_file() {
+    if [ -f "$1" ]; then
+        echo "✅ $1"
+    else
+        echo "❌ $1 (missing)"
+    fi
+}
+
+check_file "data/cleaned_reviews.csv"
+check_file "data/test_data.csv" 
+check_file "data/test_data.json"
+
 if [ -d "best_model" ] && [ "$(ls -A best_model)" ]; then
-    print_success "Model artifacts found in best_model/"
-    ls -la best_model/
+    echo "✅ best_model/ ($(ls best_model | wc -l) files)"
 else
-    print_warning "No model artifacts found in best_model/"
+    echo "❌ best_model/ (empty or missing)"
 fi
 
-# Check for generated files
-echo ""
-echo "📊 Pipeline Summary:"
-echo "==================="
-if [ -f "data/cleaned_reviews.csv" ]; then
-    echo "✅ data/cleaned_reviews.csv (processed training data)"
-else
-    echo "❌ data/cleaned_reviews.csv (missing)"
-fi
-
-if [ -f "data/test_data.csv" ]; then
-    echo "✅ data/test_data.csv (test dataset)"
-else
-    echo "❌ data/test_data.csv (missing)"
-fi
-
-if [ -f "data/test_data.json" ]; then
-    echo "✅ data/test_data.json (test dataset in JSON)"
-else
-    echo "❌ data/test_data.json (missing)"
-fi
-
-echo ""
-print_success "ML Pipeline execution completed! 🎉"
+print_success "Done! 🎉"
