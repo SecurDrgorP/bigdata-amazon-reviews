@@ -84,9 +84,9 @@ services:
     networks:
       - kafka-net
     volumes:
-      - ./data:/opt/spark-data
-      - ./spark_section/consumer:/app/consumer
-      - ./spark_section/model:/app/model
+      - ./data:/opt/data
+      - ./consumer:/app/consumer
+      - ./best_model:/app/best_model
 
   spark-worker-1:
     build:
@@ -106,8 +106,8 @@ services:
     networks:
       - kafka-net
     volumes:
-      - ./data:/opt/spark-data
-      - ./spark_section/model:/app/model
+      - ./data:/opt/data
+      - ./best_model:/app/best_model
 
   spark-worker-2:
     build:
@@ -128,11 +128,12 @@ services:
       - kafka-net
     volumes:
       - ./data:/opt/data
-      - ./spark_section/model:/app/model
+      - ./best_model:/app/best_model
 
   consumer:
     build:
-      context: ./spark_section
+      context: .
+      dockerfile: consumer/Dockerfile
     container_name: kafka-consumer
     depends_on:
       - kafka
@@ -147,7 +148,7 @@ services:
     networks:
       - kafka-net
     volumes:
-      - ./spark_section/model:/app/model
+      - ./best_model:/app/best_model
     command: spark-submit --master spark://spark-master:7077 --packages org.apache.spark:spark-sql-kafka-0-10_2.12:3.3.0,org.mongodb.spark:mongo-spark-connector_2.12:3.0.2 spark_consumer.py
 
   producer:
@@ -174,6 +175,26 @@ services:
       - mongodb
     networks:
       - kafka-net
+
+  # ML Pipeline Service - Data Preprocessing and Model Training
+  ml-pipeline:
+    build:
+      context: .
+      dockerfile: model_crafter/Dockerfile
+    container_name: ml-pipeline
+    volumes:
+      - ./data:/app/data
+      - ./best_model:/app/best_model
+    environment:
+      - SPARK_LOCAL_DIRS=/tmp/spark-temp
+      - SPARK_DRIVER_MEMORY=4g
+      - SPARK_EXECUTOR_MEMORY=2g
+    networks:
+      - kafka-net
+    # This service runs once and exits
+    # restart: "no"
+    profiles:
+      - ml-training
 
 volumes:
   mongo_data:

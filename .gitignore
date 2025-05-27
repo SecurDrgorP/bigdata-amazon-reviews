@@ -13,7 +13,15 @@ __pycache__/
 data/spacy_model/
 
 # Ignore data files
-# data/*.csv
+data/*.csv
 data/*.pkl
 data/*.npz
+test_data.json
+
+test_data_directory.json
+
+# Ignore model crafted directories
+best_model/*
+
+TODO.txt
 

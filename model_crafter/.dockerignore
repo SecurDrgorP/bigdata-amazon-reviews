@@ -1,0 +1,15 @@
+# Model crafter specific dockerignore
+# Only copy essential files for ML pipeline
+
+# Exclude everything first
+*
+
+# Then include what we need
+!preprocessing/
+!training/
+!requirements.txt
+
+# Exclude Python cache in included directories
+**/__pycache__
+**/*.pyc
+**/*.pyo

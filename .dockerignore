@@ -1,0 +1,61 @@
+# Version control
+.git
+.gitignore
+
+# Virtual environments
+.VENV
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.Python
+env
+pip-log.txt
+pip-delete-this-directory.txt
+.tox
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.log
+.git
+.mypy_cache
+.pytest_cache
+.hypothesis
+
+# Documentation
+*.md
+README*
+
+# Docker files (not needed in container)
+Dockerfile
+docker-compose.yml
+.dockerignore
+
+# Development files
+.env
+.env.*
+Makefile
+*.sh
+
+# Data directories (will be mounted as volumes)
+data/
+backend/
+kafka_producer/
+docker/
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Temporary files
+*.tmp
+*.temp

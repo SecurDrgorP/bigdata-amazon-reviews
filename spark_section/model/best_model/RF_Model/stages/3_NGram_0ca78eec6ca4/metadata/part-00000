@@ -1,1 +1,0 @@
-{"class":"org.apache.spark.ml.feature.NGram","timestamp":1747521316018,"sparkVersion":"3.5.5","uid":"NGram_0ca78eec6ca4","paramMap":{"outputCol":"trigrams","inputCol":"filtered_words","n":3},"defaultParamMap":{"outputCol":"NGram_0ca78eec6ca4__output","n":2}}
