@@ -106,12 +106,6 @@ Source: [Amazon Review Sentiment Analysis Dataset on Kaggle](https://www.kaggle.
 | `unixReviewTime` | Review time (Unix timestamp)                     |
 | `reviewTime`     | Review time (human-readable)                     |
 
-### Target Class (Label) Definition
-
-- `overall < 3`: Negative review  
-- `overall = 3`: Neutral review  
-- `overall > 3`: Positive review  
-
 ## Model Training
 
 The sentiment analysis model can be retrained using:
