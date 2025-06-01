@@ -90,6 +90,28 @@ The system architecture consists of the following components:
 4. **Storage**: Results are stored in MongoDB
 5. **Visualization**: Flask application renders insights through a web dashboard
 
+## Dataset
+
+Source: [Amazon Review Sentiment Analysis Dataset on Kaggle](https://www.kaggle.com/code/soniaahlawat/sentiment-analysis-amazon-review/input)
+
+| Field Name       | Description                                       |
+|------------------|-------------------------------------------------|
+| `reviewerID`     | Reviewer’s unique ID                             |
+| `asin`           | Product ID                                       |
+| `reviewerName`   | Reviewer’s name                                  |
+| `helpful`        | Helpfulness rating, e.g. `[2, 3]` means 2 out of 3 found the review helpful |
+| `reviewText`     | Text content of the review                       |
+| `overall`        | Product rating (out of 5)                        |
+| `summary`        | Summary of the review                            |
+| `unixReviewTime` | Review time (Unix timestamp)                     |
+| `reviewTime`     | Review time (human-readable)                     |
+
+### Target Class (Label) Definition
+
+- `overall < 3`: Negative review  
+- `overall = 3`: Neutral review  
+- `overall > 3`: Positive review  
+
 ## Model Training
 
 The sentiment analysis model can be retrained using:
